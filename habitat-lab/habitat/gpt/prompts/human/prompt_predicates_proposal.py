@@ -5,7 +5,7 @@ import os
 import pathlib
 import json
 from habitat.gpt.prompts.utils import *
-from habitat.gpt.query import query, llm_local_inference
+from habitat.gpt.query import query, llm_local_inference, llm_local_inference_language
 
 
 def propose_predicates_prompt_1(time_, intention, sampled_motion_list, obj_room_mapping, profile_string, retrieved_memory):
@@ -117,7 +117,7 @@ def propose_predicates(time_, intention, sampled_motion_list, obj_room_mapping, 
             temp = temperature_dict.get('predicates_proposal', 0.7) if temperature_dict else 0.7
             
             # Call the local inference function (no images needed for predicates proposal)
-            json_data = llm_local_inference(
+            json_data = llm_local_inference_language(
                 user_content=predicates_user_contents_filled,
                 image_paths=None,  # No images needed for this function
                 save_path=save_path,

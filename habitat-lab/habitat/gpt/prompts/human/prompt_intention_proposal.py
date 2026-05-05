@@ -5,7 +5,7 @@ import os
 import pathlib
 import json
 from habitat.gpt.prompts.utils import *
-from habitat.gpt.query import query, llm_local_inference
+from habitat.gpt.query import query, llm_local_inference, llm_local_inference_language
 
 
 def propose_intention_prompt(time_, room_list, profile_string, retrieved_memory):
@@ -80,9 +80,8 @@ def propose_intention(time_, room_list, profile_string, retrieved_memory, output
             temp = temperature_dict.get('intention_proposal', 0.7) if temperature_dict else 0.7
             
             # Call the local inference function (no images needed for intention proposal)
-            json_data = llm_local_inference(
+            json_data = llm_local_inference_language(
                 user_content=intention_user_contents_filled,
-                image_paths=None,  # No images needed for this function
                 save_path=save_path,
                 temperature=temp,
                 max_tokens=4096

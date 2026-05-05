@@ -5,7 +5,7 @@ import os
 import pathlib
 import json
 from habitat.gpt.prompts.utils import *
-from habitat.gpt.query import query, llm_local_inference
+from habitat.gpt.query import query, llm_local_inference_language
 
 
 def infer_traits_prompt(retrieved_memory, fuzzy_traits):
@@ -72,9 +72,8 @@ def infer_traits(time_, retrieved_memory, fuzzy_traits, output_path, existing_re
             temp = temperature_dict.get('traits_inference', 0.2) if temperature_dict else 0.2
             
             # Call the local inference function (no images needed for traits inference)
-            json_data = llama_local_inference(
+            json_data = llm_local_inference_language(
                 user_content=traits_user_contents_filled,
-                image_paths=None,  # No images needed for this function
                 save_path=save_path,
                 temperature=temp,
                 max_tokens=4096

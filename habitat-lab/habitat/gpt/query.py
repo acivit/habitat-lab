@@ -4,7 +4,7 @@ import os
 import time
 import json
 import torch, gc
-from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+from transformers import Qwen3VLForConditionalGeneration, AutoModelForCausalLM, AutoProcessor, AutoTokenizer, pipeline
 from PIL import Image
 
 
@@ -173,17 +173,21 @@ def query(system, user_contents, assistant_contents, save_path=None, model='gpt-
 
     while retries < max_retries:
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_completion_tokens=4096
-            )
+            response = llm_local_from_messages(messages)
+            # response = client.chat.completions.create(
+            #     model=model,
+            #     messages=messages,
+            #     temperature=temperature,
+            #     max_completion_tokens=4096
+            # )
+            
+            print(response)
 
-            result = ''
-            for choice in response.choices: 
-                result += choice.message.content 
+            # result = ''
+            # for choice in response.choices: 
+            #     result += choice.message.content 
 
+            result = response["res"]
             end = time.time()
             used_time = end - start
 
@@ -206,7 +210,7 @@ def query(system, user_contents, assistant_contents, save_path=None, model='gpt-
         except OpenAIError as e:
             print(f"Error occurred: {str(e)}. Retrying...")
             retries += 1
-            sleep(2)  # Adding a delay before retrying
+            time.sleep(2)  # Adding a delay before retrying
 
     print(f"Failed after {max_retries} attempts.")
     return None
@@ -221,8 +225,32 @@ def clear_gpu_memory(model, trainer, tokenizer):
 
     # Step 3: If using a model, explicitly move to CPU and delete
     # For example, if your model is still in memory:
-    model.cpu()
-    del model
+
+    # For models with meta tensors (loaded with device_map)
+    if hasattr(model, 'device_map'):
+        print("Model loaded with device map - using accelerated cleanup")
+        
+        # Try to use accelerate's cleanup if available
+        try:
+            from accelerate import Accelerator
+            accelerator = Accelerator()
+            accelerator.free_memory()
+        except:
+            pass
+        
+        # Delete model without moving to CPU first
+        del model
+
+    else:
+        # Regular cleanup for normal models
+        try:
+            model.cpu()
+            del model
+        except:
+            del model
+
+    # model.cpu()
+    # del model
     if trainer is not None: del trainer
     del tokenizer
 
@@ -235,6 +263,255 @@ def clear_gpu_memory(model, trainer, tokenizer):
             torch.cuda.reset_max_memory_allocated()
             torch.cuda.reset_max_memory_cached()
 
+
+def llm_local_from_messages(messages, temperature=0.2, max_tokens=4096):
+
+    model_name = "Qwen/Qwen3-VL-8B-Instruct-FP8"
+
+    model = Qwen3VLForConditionalGeneration.from_pretrained(
+        model_name, dtype="auto", device_map="auto"
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        use_auth_token=os.environ['HUGGINGFACE_TOKEN'],
+        trust_remote_code=True
+    )
+    
+    processor = AutoProcessor.from_pretrained(
+        model_name, 
+        use_auth_token=os.environ['HUGGINGFACE_TOKEN']
+    )
+    
+    # Prepare input prompt
+    prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    
+    # Tokenize input
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=False).to(model.device)
+    
+    # Run inference
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs, 
+            max_new_tokens=max_tokens, 
+            temperature=temperature
+        )
+    
+    # Decode response
+    prompt_ids = inputs["input_ids"][0]
+    full_output_ids = outputs[0]
+    generated_ids = full_output_ids[len(prompt_ids):]
+    generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    
+    # Prepare response data
+    json_data = {
+        "res": generated_text, 
+        "system": "You are a helpful assistant.", 
+        "user": messages
+    }
+    
+    print(generated_text)
+    print()
+    
+    # Clean up GPU memory
+    clear_gpu_memory(model, processor, tokenizer)
+
+    return json_data
+
+def llm_local_embeddings(inputs, save_path=None, batch_size=8, pooling="mean"):
+    """
+    Generate embeddings for a list of texts using a local Qwen3VL model.
+
+    Args:
+        inputs (list of str): List of text strings to embed.
+        save_path (str, optional): Path to save embeddings as JSON.
+        batch_size (int): Number of texts to process at once (adjust based on GPU memory).
+        pooling (str): Pooling strategy: "mean", "max", or "last_token" (default "mean").
+
+    Returns:
+        dict: {
+            "embeddings": list of lists (each inner list is the embedding vector),
+            "used_time": float,
+            "num_inputs": int
+        }
+    """
+    ts = time.time()
+
+    # --- 1. Load model, tokenizer, processor (same as before) ---
+    model_name = "Qwen/Qwen3-VL-8B-Instruct-FP8"
+
+    model = Qwen3VLForConditionalGeneration.from_pretrained(
+        model_name, dtype="auto", device_map="auto"
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        use_auth_token=os.environ['HUGGINGFACE_TOKEN'],
+        trust_remote_code=True
+    )
+    processor = AutoProcessor.from_pretrained(
+        model_name,
+        use_auth_token=os.environ['HUGGINGFACE_TOKEN']
+    )
+
+    # Set model to evaluation mode
+    model.eval()
+
+    all_embeddings = []
+
+    # --- 2. Process inputs in batches ---
+    for i in range(0, len(inputs), batch_size):
+        batch_texts = inputs[i:i+batch_size]
+
+        # Tokenize the raw texts (no chat template – adjust if needed)
+        # If you want to use the chat template, you can apply it per text.
+        tokenized = tokenizer(
+            batch_texts,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+            max_length=512  # adjust as needed
+        ).to(model.device)
+
+        with torch.no_grad():
+            # Forward pass, requesting hidden states
+            outputs = model(
+                **tokenized,
+                output_hidden_states=True,
+                return_dict=True
+            )
+            # outputs.hidden_states is a tuple (layers) of (batch, seq_len, hidden_dim)
+            # We'll take the last layer's hidden states.
+            last_hidden = outputs.hidden_states[-1]  # shape (batch, seq_len, hidden_dim)
+
+            # Apply pooling
+            if pooling == "mean":
+                # Mean pooling over sequence length (ignoring padding)
+                # Get attention mask to ignore padding tokens
+                attention_mask = tokenized["attention_mask"].unsqueeze(-1).float()
+                sum_embeddings = (last_hidden * attention_mask).sum(dim=1)
+                mask_sum = attention_mask.sum(dim=1).clamp(min=1e-9)
+                batch_embeddings = sum_embeddings / mask_sum
+            elif pooling == "max":
+                # Max pooling (works with attention mask)
+                batch_embeddings = (last_hidden * attention_mask).max(dim=1)[0]
+            elif pooling == "last_token":
+                # Take last token (not masked) – simpler but less common
+                seq_lens = tokenized["attention_mask"].sum(dim=1) - 1
+                batch_embeddings = last_hidden[range(len(batch_texts)), seq_lens, :]
+            else:
+                raise ValueError(f"Unknown pooling method: {pooling}")
+
+            all_embeddings.extend(batch_embeddings.cpu().numpy().tolist())
+
+    # --- 3. Clean up (same as before) ---
+    clear_gpu_memory(model, processor, tokenizer)
+
+    # --- 4. Prepare and return result ---
+    result = {
+        "embeddings": all_embeddings,
+        "used_time": time.time() - ts,
+        "num_inputs": len(inputs)
+    }
+
+    if save_path:
+        with open(save_path, "w") as f:
+            json.dump(result, f, indent=4)
+
+    return result
+
+def llm_local_inference_language(user_content, save_path=None, temperature=0.2, max_tokens=4096, image_paths=None):
+    """
+    Run local Llama inference for language-only input
+    
+    Args:
+        user_content (str): The text prompt/content
+        save_path (str, optional): Path to save the response JSON
+        temperature (float): Generation temperature (default: 0.2)
+        max_tokens (int): Maximum tokens to generate (default: 4096)
+    
+    Returns:
+        dict: Response data with timing, response text, system prompt, and user content
+    """
+    ts = time.time()
+    #model_name = "meta-llama/Llama-3.2-3B-Instruct"
+    model_name = "Qwen/Qwen3-VL-8B-Instruct-FP8"
+
+    # model = AutoModelForCausalLM.from_pretrained(
+    #     model_name,
+    #     use_auth_token=os.environ['HUGGINGFACE_TOKEN'],
+    #     dtype=torch.bfloat16,
+    #     device_map="auto"
+    # )
+
+    # default: Load the model on the available device(s)
+    model = Qwen3VLForConditionalGeneration.from_pretrained(
+        model_name, dtype="auto", device_map="auto"
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        use_auth_token=os.environ['HUGGINGFACE_TOKEN'],
+        trust_remote_code=True
+    )
+    
+    processor = AutoProcessor.from_pretrained(
+        model_name, 
+        use_auth_token=os.environ['HUGGINGFACE_TOKEN']
+    )
+    
+    
+    # Construct message for Llama-3 Vision
+    messages = [{"role": "user", "content": []}]
+    
+    messages[0]["content"].append({"type": "text", "text": user_content})
+    
+    # Prepare input prompt
+    prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    
+    #print("Prompt: ", prompt)
+    # Tokenize input
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=False).to(model.device)
+    
+    #print("Inputs: ", inputs)
+    # Run inference
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs, 
+            max_new_tokens=max_tokens, 
+            temperature=temperature
+        )
+        # outputs = pipe(
+        #     **inputs,
+        #     max_new_tokens=256,
+        # )
+    
+    # Decode response
+    prompt_ids = inputs["input_ids"][0]
+    full_output_ids = outputs[0]
+    generated_ids = full_output_ids[len(prompt_ids):]
+    generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    
+
+    print("=====================================")
+    print("Output:", outputs)
+    print("end?", generated_text)
+
+    # Prepare response data
+    json_data = {
+        "used_time": time.time() - ts, 
+        "res": generated_text, 
+        "system": "You are a helpful assistant.", 
+        "user": user_content
+    }
+
+    # Save if path provided
+    if save_path:
+        with open(save_path, "w") as f:
+            json.dump(json_data, f, indent=4)
+    
+    print(generated_text)
+    print()
+    clear_gpu_memory(model, processor, tokenizer)
+    return json_data
 
 def llm_local_inference(user_content, image_paths=None, save_path=None, temperature=0.2, max_tokens=4096):
     """
@@ -252,16 +529,33 @@ def llm_local_inference(user_content, image_paths=None, save_path=None, temperat
     """
     ts = time.time()
     
-    model_name = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+    #model_name = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+    #model_name = "Qwen/Qwen3-VL-8B-Thinking"
+    #model_name = "meta-llama/Llama-3.2-8B-Instruct"
     
-    # Load model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        use_auth_token=os.environ['HUGGINGFACE_TOKEN'],  
-        trust_remote_code=True,
-        # torch_dtype=torch.bfloat16,
-        device_map='balanced'
+    #model_name = "meta-llama/Llama-3.2-3B-Instruct"
+    model_name = "Qwen/Qwen3-VL-8B-Instruct-FP8"
+
+    # model = AutoModelForCausalLM.from_pretrained(
+    #     model_name,
+    #     use_auth_token=os.environ['HUGGINGFACE_TOKEN'],
+    #     dtype=torch.bfloat16,
+    #     device_map="auto"
+    # )
+
+    # default: Load the model on the available device(s)
+    model = Qwen3VLForConditionalGeneration.from_pretrained(
+        model_name, dtype="auto", device_map="auto"
     )
+
+    # # Load model and tokenizer
+    # model = AutoModelForCausalLM.from_pretrained(
+    #     model_name,
+    #     use_auth_token=os.environ['HUGGINGFACE_TOKEN'],  
+    #     trust_remote_code=True,
+    #     # torch_dtype=torch.bfloat16,
+    #     device_map='balanced'
+    # )
     
     tokenizer = AutoTokenizer.from_pretrained(
         model_name,
