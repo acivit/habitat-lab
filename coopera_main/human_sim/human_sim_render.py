@@ -69,8 +69,8 @@ def parse_args():
     
     # Core configuration parameters
     parser.add_argument('--use-gpt-human', type=lambda x: x.lower() == 'true', 
-                        default=True,
-                        help='Read human simulation results by GPT, Llama if false (True/False, default: True)')
+                        default=False,
+                        help='Read human simulation results by GPT, Llama if false (True/False, default: False)')
     
     parser.add_argument('--collab-type', type=int, default=2, choices=[1, 2],
                         help='Collaboration type (1 or 2, default: 2)')
@@ -80,13 +80,13 @@ def parse_args():
                         help='Maximum number of days to process (d > X, default: 5)')
     
     # Optional: specific indices to process
-    parser.add_argument('--scene-indices', type=int, nargs='+', default=None,
+    parser.add_argument('--scene-indices', type=int, nargs='+', default=[0, 1, 2],
                         help='Specific scene indices to process (e.g., --scene-indices 0 1 2)')
-    parser.add_argument('--profile-indices', type=int, nargs='+', default=None,
+    parser.add_argument('--profile-indices', type=int, nargs='+', default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
                         help='Specific profile indices to process (e.g., --profile-indices 0 1 2)')
-    parser.add_argument('--day-indices', type=int, nargs='+', default=None,
+    parser.add_argument('--day-indices', type=int, nargs='+', default=[0, 1, 2, 3, 4],
                         help='Specific day indices to process (e.g., --day-indices 0 1 2)')
-    parser.add_argument('--hour-indices', type=int, nargs='+', default=None,
+    parser.add_argument('--hour-indices', type=int, nargs='+', default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
                         help='Specific hour indices to process (e.g., --hour-indices 0 1 2)')
     
     # GPU configuration
@@ -103,6 +103,7 @@ args = parse_args()
 DEVICE = f"cuda:{args.gpu_id}"
 set_seed_everywhere(42)
 
+print("Device: ", DEVICE)
 # Load model for semantic similarity
 sentence_model = SentenceTransformer("all-MiniLM-L6-v2", device=DEVICE)
 

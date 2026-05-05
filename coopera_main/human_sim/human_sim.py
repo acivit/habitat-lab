@@ -229,23 +229,23 @@ if __name__ == "__main__":
         room_dict, static_obj_trans_dict, dynamic_obj_trans_dict, static_obj_room_mapping, dynamic_obj_room_mapping, aom, rom = select_pick_place_obj(env, scene_id, 0, 0, collab_type=collab_type)
         room_list = list(room_dict.keys())
 
-        print()
-        print(room_list)
-        print()
-        print(room_dict)
-        print()
-        print(f"Static Object Translation Dict Size: {len(static_obj_trans_dict)}")
-        print(static_obj_trans_dict)
-        print()
-        print(f"Dynamic Object Translation Dict Size: {len(dynamic_obj_trans_dict)}")
-        print(dynamic_obj_trans_dict)
-        print()
-        print(f"Static Object Room Mapping Size: {len(static_obj_room_mapping)}")
-        print(static_obj_room_mapping)
-        print()
-        print(f"Dynamic Object Room Mapping Size: {len(dynamic_obj_room_mapping)}")
-        print(dynamic_obj_room_mapping)
-        print()
+        # print()
+        # print(room_list)
+        # print()
+        # print(room_dict)
+        # print()
+        # print(f"Static Object Translation Dict Size: {len(static_obj_trans_dict)}")
+        # print(static_obj_trans_dict)
+        # print()
+        # print(f"Dynamic Object Translation Dict Size: {len(dynamic_obj_trans_dict)}")
+        # print(dynamic_obj_trans_dict)
+        # print()
+        # print(f"Static Object Room Mapping Size: {len(static_obj_room_mapping)}")
+        # print(static_obj_room_mapping)
+        # print()
+        # print(f"Dynamic Object Room Mapping Size: {len(dynamic_obj_room_mapping)}")
+        # print(dynamic_obj_room_mapping)
+        # print()
 
         for i, (profile_string, big_five) in enumerate(zip(profile_string_list, big_five_list)):
             if args.profile_indices is not None:
@@ -254,7 +254,7 @@ if __name__ == "__main__":
             elif i >= args.max_profiles:
                 continue
             
-            profile_string = traits_summary_mllm(results_path, i, scene_id, [profile_string, big_five], temperature_dict, model_dict, gpt=use_gpt_human, start_over=False)[0][1]
+            profile_string = traits_summary_mllm(results_path, i, scene_id, [profile_string, big_five], temperature_dict, model_dict, gpt=use_gpt_human, start_over=start_logic_human)[0][1]
             human_intentions_hist, human_predicates_hist = [], []
 
             for d, day in enumerate(days):

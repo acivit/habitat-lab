@@ -246,16 +246,19 @@ def retrieve_memory(gt_text, activity_list_original, day, times, selected_time, 
         activity_list = activity_list_original
 
     intentions_recency, predicates_recency = calculate_recency_scores(day, times, selected_time, predicates_num, decay_factor=decay_factor, prev_day=prev_day)
+    print("Intentions recency: ", intentions_recency)
+    print("Predicates recency: ", predicates_recency)
     relevance_scores = calculate_relevance_scores(gt_text, activity_list, model)
+    print("Relevance scores: ", relevance_scores)
     recency_scores = intentions_recency if retrieve_type == "intention" else predicates_recency
-
-    # print()
-    # print(retrieve_type)
-    # print(len(intentions_recency))
-    # print(len(predicates_recency))
-    # print(len(relevance_scores))
-    # print(len(recency_scores))
-    # print()
+    print("Recency scores: ", recency_scores)
+    print()
+    print(retrieve_type)
+    print(len(intentions_recency))
+    print(len(predicates_recency))
+    print(len(relevance_scores))
+    print(len(recency_scores))
+    print()
 
     if len(relevance_scores) != len(recency_scores):
         raise ValueError("The lengths of relevance scores and recency scores must match.")
