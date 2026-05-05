@@ -5,7 +5,7 @@ import os
 import pathlib
 import json
 from habitat.gpt.prompts.utils import *
-from habitat.gpt.query import query, llm_local_inference
+from habitat.gpt.query import query, llm_local_inference_language
 
 
 def summarize_traits_prompt(profile_string):
@@ -66,9 +66,8 @@ def summarize_traits(profile_string, output_path, existing_response=None, temper
             temp = temperature_dict.get('traits_summary', 0.2) if temperature_dict else 0.2
             
             # Call the local inference function (no images needed for traits summary)
-            json_data = llm_local_inference(
+            json_data = llm_local_inference_language(
                 user_content=traits_user_contents_filled,
-                image_paths=None,  # No images needed for this function
                 save_path=save_path,
                 temperature=temp,
                 max_tokens=4096
